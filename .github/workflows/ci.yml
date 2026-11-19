@@ -4,6 +4,11 @@ on:
   push:
     branches: [master, main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      frontend_ref:
+        description: equiptrack-solution branch/tag/SHA to check roles against
+        required: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -17,19 +22,21 @@ jobs:
     name: Build and test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Frontend checkout for the role-contract test (RoleContractTests).
       # If equiptrack-solution is private, add a repo secret FRONTEND_REPO_TOKEN
       # (fine-grained PAT with read access to that repo).
-      - uses: actions/checkout@v4
+      # Branch: manual-run input > repo variable FRONTEND_REF > master.
+      - uses: actions/checkout@v5
         with:
           repository: obafisayo/equiptrack-solution
+          ref: ${{ inputs.frontend_ref || vars.FRONTEND_REF || 'master' }}
           path: _frontend
           token: ${{ secrets.FRONTEND_REPO_TOKEN || github.token }}
           sparse-checkout: src/lib/domain
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
 
@@ -47,7 +54,7 @@ jobs:
         env:
           ConnectionStrings__Default: Host=localhost
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: test-results

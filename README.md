@@ -69,4 +69,6 @@ CI fails if the EF model changes without a matching migration.
 
 `RoleContractTests` compares `Domain/Roles.cs` with the frontend's `src/lib/domain/roles.ts`. It finds the frontend through `FRONTEND_REPO_PATH`, or through a sibling checkout at `../equiptrack-solution`. CI checks out the frontend repo and sets `REQUIRE_ROLE_CONTRACT=true`, so a missing or mismatched list fails the build. If `equiptrack-solution` is private, add a repository secret `FRONTEND_REPO_TOKEN`: a fine-grained token with read access to that repo.
 
+CI compares against the frontend's `master` branch by default. To check against another branch, for example while a frontend role change is still in review, set the repository variable `FRONTEND_REF` (Settings → Secrets and variables → Actions → Variables), or pass `frontend_ref` when you run the workflow manually.
+
 When you change roles, update both repositories in the same change.
