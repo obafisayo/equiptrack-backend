@@ -1,7 +1,10 @@
 using System.Threading.RateLimiting;
+using EquipTrack.Api.Auth;
 using EquipTrack.Api.Data;
 using EquipTrack.Api.Email;
 using EquipTrack.Api.Leads;
+using EquipTrack.Api.Organizations;
+using EquipTrack.Api.WorkOrders;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -32,10 +35,25 @@ builder.Services.AddHttpClient<IBrevoClient, BrevoClient>((sp, http) =>
 builder.Services.AddScoped<LeadSyncProcessor>();
 builder.Services.AddHostedService<LeadSyncWorker>();
 
+// ── Authentication (Neon Auth JWT) + authorisation ─────────────────────────
+builder.Services.AddOptions<NeonAuthOptions>().Bind(builder.Configuration.GetSection(NeonAuthOptions.SectionName));
+builder.Services.AddHttpClient("neon-jwks", http => http.Timeout = TimeSpan.FromSeconds(10));
+// One provider instance for the whole app so the signing-key cache is shared.
+builder.Services.AddSingleton<IJwksProvider>(sp => ActivatorUtilities.CreateInstance<HttpJwksProvider>(sp,
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient("neon-jwks")));
+builder.Services.AddSingleton<NeonJwtValidator>();
+builder.Services.AddScoped<CurrentMemberResolver>();
+builder.Services.AddAuthentication(NeonAuthenticationHandler.SchemeName)
+    .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, NeonAuthenticationHandler>(
+        NeonAuthenticationHandler.SchemeName, _ => { });
+builder.Services.AddAuthorization();
+
 // ── HTTP concerns ──────────────────────────────────────────────────────────
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
-    policy.WithOrigins(allowedOrigins).WithMethods("POST", "GET").WithHeaders("Content-Type")));
+    policy.WithOrigins(allowedOrigins)
+        .WithMethods("GET", "POST", "PATCH")
+        .WithHeaders("Content-Type", "Authorization", CurrentMemberResolver.OrganizationHeader)));
 
 builder.Services.AddRateLimiter(options =>
 {
@@ -74,6 +92,9 @@ var app = builder.Build();
 
 if (trustForwardedHeaders) app.UseForwardedHeaders();
 
+if (!app.Services.GetRequiredService<IOptions<NeonAuthOptions>>().Value.IsConfigured)
+    app.Logger.LogWarning("NeonAuth:BaseUrl is not set: sign-in protected endpoints will return 401.");
+
 if (app.Configuration.GetValue("Database:MigrateOnStartup", false))
 {
     using var scope = app.Services.CreateScope();
@@ -83,9 +104,13 @@ if (app.Configuration.GetValue("Database:MigrateOnStartup", false))
 app.UseExceptionHandler();
 app.UseCors();
 app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapHealthChecks("/health");
 app.MapLeadEndpoints();
+app.MapOrganizationEndpoints();
+app.MapWorkOrderEndpoints();
 
 app.Run();
 

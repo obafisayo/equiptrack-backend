@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, 'feat/**']
   pull_request:
   workflow_dispatch:
     inputs:
@@ -34,7 +34,11 @@ jobs:
           ref: ${{ inputs.frontend_ref || vars.FRONTEND_REF || 'master' }}
           path: _frontend
           token: ${{ secrets.FRONTEND_REPO_TOKEN || github.token }}
-          sparse-checkout: src/lib/domain
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            src/lib/domain/roles.ts
+            src/lib/lifecycle.ts
+            src/config/sla.ts
 
       - uses: actions/setup-dotnet@v5
         with:

@@ -27,6 +27,32 @@ equiptrack-backend/
 
 If Brevo is not configured, leads are still stored and sync once it is.
 
+## Work order lifecycle (core)
+
+Code is in `src/EquipTrack.Api/WorkOrders/`.
+
+- `Lifecycle.cs` is the state machine. Each action (`AssignWarehouse`, `PassPostQaqc`, `MarkShipped`, …) lists the stages it can start from, the stage it moves to, and the roles allowed to perform it. Warehouse and dispatch personnel can act only on orders assigned to them. Anything not listed is refused with Forbidden (403), InvalidState (409) or Invalid (400).
+- Each successful action appends one row to `work_order_events`: who did it, their role, the stage before and after, the named owner, and any reason or reference. A database trigger blocks UPDATE and DELETE on that table, so the history is a tamper-proof audit trail.
+- `Sla.cs` calculates elapsed time from `StageStartedAt`, never from a stored counter. The stage clock restarts only when the stage actually changes; reassigning an order does not reset it.
+- `FrontendContractTests` checks that the roles, the 16 stages (in order) and the stage SLA hours match the frontend's `roles.ts`, `lifecycle.ts` and `sla.ts`.
+
+## Sign-in and permissions
+
+- **Who you are:** users sign in with Neon Auth (email and password) in the frontend, then send `Authorization: Bearer <JWT>` to this API. `Auth/NeonJwtValidator.cs` checks the EdDSA (Ed25519) signature against Neon's JWKS, then the issuer, audience (both the Auth URL's origin), `exp`, `nbf` and the banned flag. Any other algorithm is rejected. Tokens last 15 minutes.
+- **What you may do:** roles come from `organization_members`, never from the token. An org admin invites people by email and role (`POST /api/org/members`). An invitation attaches to a Neon Auth account only when that account's email is verified.
+- **Bootstrap:** emails listed in `NeonAuth__SysadminEmails` (verified) can create an organisation and its first org admin (`POST /api/admin/organizations`).
+- **Visibility:** each organisation sees only its own orders. Requesters see the orders they raised, warehouse and dispatch personnel see the orders assigned to them, and supervisors, QAQC, executives and logistics see every order in the organisation. Requests for anything outside a user's view return 404.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/me` | Identity, organisation and role |
+| `POST /api/admin/organizations` | Sysadmin: create an organisation and invite its admin |
+| `GET/POST /api/org/members`, `PATCH /api/org/members/{id}` | List members, invite, change role, suspend |
+| `POST /api/work-orders` | Requester submits an order |
+| `GET /api/work-orders?status=&stage=&mine=` | Orders visible to the caller, with SLA |
+| `GET /api/work-orders/{id}` | Detail, history and the actions available to the caller |
+| `POST /api/work-orders/{id}/actions` | `{ action, expectedStage?, reason?, assigneeMemberId?, containerRef?, waybillNumber?, vesselName? }` |
+
 ## Run locally
 
 Requires the .NET 8 SDK and Docker.
@@ -52,6 +78,8 @@ Set secrets as environment variables, never in `appsettings.json`:
 | `Brevo__TeamNotificationEmail` | Inbox that receives new waitlist applications |
 | `Brevo__WaitlistListId` / `Brevo__NewsletterListId` | Brevo contact list IDs (0 = no list) |
 | `RateLimiting__LeadsPerMinute` | Per-IP limit on lead endpoints (default 10) |
+| `NeonAuth__BaseUrl` | Neon Auth URL; JWKS, issuer and audience are derived from it |
+| `NeonAuth__SysadminEmails__0` | Verified email(s) allowed to create organisations |
 | `ForwardedHeaders__Enabled` | `true` behind a hosting proxy (Render), so rate limiting sees the real client IP |
 
 ## Deploy (Neon + Render)
