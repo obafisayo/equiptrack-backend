@@ -172,6 +172,34 @@ public static class Lifecycle
         _ => Roles.DispatchPersonnel,
     };
 
+    /// <summary>
+    /// Actions this actor could attempt right now (role, stage and assignment checks).
+    /// Used to show only relevant buttons; <see cref="Apply"/> still re-checks everything.
+    /// </summary>
+    public static IReadOnlyList<WorkflowAction> AvailableActions(WorkOrder order, Actor actor)
+    {
+        if (order.Status != WorkOrderStatus.Active) return [];
+        return Rules
+            .Where(kv => kv.Value.Roles.Contains(actor.Role)
+                         && kv.Value.From.Contains(order.Stage)
+                         && !(kv.Value.PersonnelMustBeAssignee && IsPersonnel(actor.Role) && order.AssigneeUserId != actor.UserId))
+            .Select(kv => kv.Key)
+            .Where(a => a switch
+            {
+                WorkflowAction.ConfirmReceipt => order.RequesterUserId == actor.UserId,
+                WorkflowAction.GenerateWaybill => order.WaybillNumber is null,
+                WorkflowAction.ApproveWaybill or WorkflowAction.RejectWaybill => order.WaybillNumber is not null,
+                WorkflowAction.MarkShipped => order.VesselName is not null,
+                WorkflowAction.Reassign => actor.Role == (WarehouseAssignedStages.Contains(order.Stage)
+                    ? Roles.WarehouseSupervisor : Roles.DispatchSupervisor),
+                WorkflowAction.Reverse => actor.Role == (order.Stage.Department() == Department.Warehouse
+                    ? Roles.WarehouseSupervisor : Roles.DispatchSupervisor),
+                _ => true,
+            })
+            .OrderBy(a => a)
+            .ToList();
+    }
+
     // ── Create ──────────────────────────────────────────────────────────────
 
     public static (WorkOrder? Order, WorkflowError? Error) Create(

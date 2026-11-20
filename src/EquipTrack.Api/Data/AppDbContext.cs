@@ -1,5 +1,6 @@
 using System.Text.Json;
 using EquipTrack.Api.Leads;
+using EquipTrack.Api.Organizations;
 using EquipTrack.Api.WorkOrders;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
@@ -9,6 +10,8 @@ namespace EquipTrack.Api.Data;
 public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
     public DbSet<Lead> Leads => Set<Lead>();
+    public DbSet<Organization> Organizations => Set<Organization>();
+    public DbSet<OrganizationMember> OrganizationMembers => Set<OrganizationMember>();
     public DbSet<WorkOrder> WorkOrders => Set<WorkOrder>();
     public DbSet<WorkOrderEvent> WorkOrderEvents => Set<WorkOrderEvent>();
 
@@ -49,7 +52,32 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         lead.HasIndex(l => new { l.Kind, l.Email });
         lead.HasIndex(l => new { l.SyncStatus, l.NextSyncAttemptAt });
 
+        ConfigureOrganizations(modelBuilder);
         ConfigureWorkOrders(modelBuilder);
+    }
+
+    private static void ConfigureOrganizations(ModelBuilder modelBuilder)
+    {
+        var org = modelBuilder.Entity<Organization>();
+        org.ToTable("organizations");
+        org.HasKey(o => o.Id);
+        org.Property(o => o.Name).HasMaxLength(200);
+        org.Property(o => o.Slug).HasMaxLength(50);
+        org.HasIndex(o => o.Slug).IsUnique();
+
+        var m = modelBuilder.Entity<OrganizationMember>();
+        m.ToTable("organization_members");
+        m.HasKey(x => x.Id);
+        m.Property(x => x.Email).HasMaxLength(254);
+        m.Property(x => x.UserId).HasMaxLength(100);
+        m.Property(x => x.DisplayName).HasMaxLength(200);
+        m.Property(x => x.Role).HasMaxLength(30);
+        m.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+        m.Property(x => x.InvitedByUserId).HasMaxLength(100);
+        m.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        m.HasIndex(x => new { x.OrganizationId, x.Email }).IsUnique();
+        m.HasIndex(x => x.UserId);
+        m.HasIndex(x => new { x.Email, x.Status });
     }
 
     private void ConfigureWorkOrders(ModelBuilder modelBuilder)
@@ -80,6 +108,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         if (Database.IsNpgsql()) wo.Property(w => w.Version).IsRowVersion();
         else wo.Ignore(w => w.Version);
 
+        wo.HasOne<Organization>().WithMany().HasForeignKey(w => w.OrganizationId).OnDelete(DeleteBehavior.Restrict);
         wo.HasIndex(w => new { w.OrganizationId, w.Number }).IsUnique();
         wo.HasIndex(w => new { w.OrganizationId, w.Status, w.Stage });
         wo.HasIndex(w => new { w.OrganizationId, w.AssigneeUserId });

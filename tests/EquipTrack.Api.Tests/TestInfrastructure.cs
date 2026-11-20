@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using EquipTrack.Api.Auth;
 using EquipTrack.Api.Data;
 using EquipTrack.Api.Email;
 using Microsoft.AspNetCore.Hosting;
@@ -43,6 +44,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 {
     private readonly string _dbName = $"equiptrack-tests-{Guid.NewGuid()}";
 
+    public const string SysadminEmail = "platform@equiptrack.test";
+
+    /// <summary>Signs test tokens; also serves as the API's JWKS source.</summary>
+    public TestTokens Tokens { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -50,6 +56,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Database:MigrateOnStartup", "false");
         builder.UseSetting("RateLimiting:LeadsPerMinute", "1000");
         builder.UseSetting("Brevo:ApiKey", "");
+        builder.UseSetting("NeonAuth:BaseUrl", TestTokens.BaseUrl);
+        builder.UseSetting("NeonAuth:SysadminEmails:0", SysadminEmail);
 
         builder.ConfigureServices(services =>
         {
@@ -57,9 +65,21 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<DbContextOptions>();
             services.AddDbContext<AppDbContext>(o => o.UseInMemoryDatabase(_dbName));
 
+            services.RemoveAll<IJwksProvider>();
+            services.AddSingleton<IJwksProvider>(Tokens);
+
             // The worker is exercised directly through LeadSyncProcessor in tests.
             services.RemoveAll<IHostedService>();
         });
+    }
+
+    /// <summary>An HTTP client signed in as the given user.</summary>
+    public HttpClient ClientFor(string userId, string email, bool emailVerified = true, string? name = null)
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+            "Bearer", Tokens.Issue(userId, email, emailVerified, name));
+        return client;
     }
 
     public async Task<T> WithDbAsync<T>(Func<AppDbContext, Task<T>> action)
