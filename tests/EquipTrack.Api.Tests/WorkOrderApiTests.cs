@@ -86,6 +86,15 @@ public sealed class WorkOrderApiTests : IDisposable
     }
 
     [Fact]
+    public async Task Missing_auth_configuration_returns_401_not_500()
+    {
+        using var unconfigured = new ApiFactory().WithWebHostBuilder(b => b.UseSetting("NeonAuth:BaseUrl", ""));
+        var client = unconfigured.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", _api.Tokens.Issue("u", "u@x.example"));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/me")).StatusCode);
+    }
+
+    [Fact]
     public async Task Signed_in_user_without_membership_is_told_to_ask_for_an_invitation()
     {
         var r = await _api.ClientFor("stranger", "stranger@nowhere.example").GetAsync("/api/work-orders");

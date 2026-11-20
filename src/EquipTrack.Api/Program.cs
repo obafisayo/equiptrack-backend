@@ -92,6 +92,9 @@ var app = builder.Build();
 
 if (trustForwardedHeaders) app.UseForwardedHeaders();
 
+if (!app.Services.GetRequiredService<IOptions<NeonAuthOptions>>().Value.IsConfigured)
+    app.Logger.LogWarning("NeonAuth:BaseUrl is not set: sign-in protected endpoints will return 401.");
+
 if (app.Configuration.GetValue("Database:MigrateOnStartup", false))
 {
     using var scope = app.Services.CreateScope();

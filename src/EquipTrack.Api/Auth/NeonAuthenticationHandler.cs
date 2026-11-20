@@ -10,7 +10,8 @@ public sealed class NeonAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,
     UrlEncoder encoder,
-    NeonJwtValidator validator) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    NeonJwtValidator validator,
+    IOptions<NeonAuthOptions> neonOptions) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     public const string SchemeName = "NeonAuth";
 
@@ -20,6 +21,12 @@ public sealed class NeonAuthenticationHandler(
     {
         var header = Request.Headers.Authorization.ToString();
         if (!header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return AuthenticateResult.NoResult();
+
+        if (!neonOptions.Value.IsConfigured)
+        {
+            Logger.LogWarning("NeonAuth:BaseUrl is not configured; rejecting bearer token.");
+            return AuthenticateResult.Fail("Authentication is not configured.");
+        }
 
         var result = await validator.ValidateAsync(header["Bearer ".Length..].Trim(), Context.RequestAborted);
         if (result.User is not { } user)
