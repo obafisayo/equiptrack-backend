@@ -27,6 +27,15 @@ equiptrack-backend/
 
 If Brevo is not configured, leads are still stored and sync once it is.
 
+## Work order lifecycle (core)
+
+Code is in `src/EquipTrack.Api/WorkOrders/`.
+
+- `Lifecycle.cs` is the state machine. Each action (`AssignWarehouse`, `PassPostQaqc`, `MarkShipped`, …) lists the stages it can start from, the stage it moves to, and the roles allowed to perform it. Warehouse and dispatch personnel can act only on orders assigned to them. Anything not listed is refused with Forbidden (403), InvalidState (409) or Invalid (400).
+- Each successful action appends one row to `work_order_events`: who did it, their role, the stage before and after, the named owner, and any reason or reference. A database trigger blocks UPDATE and DELETE on that table, so the history is a tamper-proof audit trail.
+- `Sla.cs` calculates elapsed time from `StageStartedAt`, never from a stored counter. The stage clock restarts only when the stage actually changes; reassigning an order does not reset it.
+- `FrontendContractTests` checks that the roles, the 16 stages (in order) and the stage SLA hours match the frontend's `roles.ts`, `lifecycle.ts` and `sla.ts`.
+
 ## Run locally
 
 Requires the .NET 8 SDK and Docker.
