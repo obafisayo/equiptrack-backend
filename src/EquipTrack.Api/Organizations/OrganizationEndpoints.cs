@@ -3,19 +3,25 @@ using System.Text.RegularExpressions;
 using EquipTrack.Api.Auth;
 using EquipTrack.Api.Data;
 using EquipTrack.Api.Domain;
+using EquipTrack.Api.Email;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace EquipTrack.Api.Organizations;
 
 public sealed record CreateOrganizationRequest(string? Name, string? Slug, string? AdminEmail, string? AdminName);
-public sealed record InviteMemberRequest(string? Email, string? Name, string? Role);
+public sealed record InviteMemberRequest(string? Email, string? Name, string? Role, string? Department);
 public sealed record UpdateMemberRequest(string? Role, string? Status);
 
 public sealed record MemberDto(Guid Id, string Email, string Name, string Role, string Status, string? UserId,
-    DateTimeOffset InvitedAt, DateTimeOffset? JoinedAt)
+    string? Department, DateTimeOffset InvitedAt, DateTimeOffset? InviteExpiresAt, bool InviteExpired,
+    DateTimeOffset? InviteEmailSentAt, DateTimeOffset? JoinedAt, DateTimeOffset? LastActiveAt)
 {
-    public static MemberDto From(OrganizationMember m) =>
-        new(m.Id, m.Email, m.DisplayName, m.Role, m.Status.ToString().ToLowerInvariant(), m.UserId, m.InvitedAt, m.JoinedAt);
+    public static MemberDto From(OrganizationMember m, DateTimeOffset now) =>
+        new(m.Id, m.Email, m.DisplayName, m.Role, m.Status.ToString().ToLowerInvariant(), m.UserId, m.Department,
+            m.InvitedAt, m.InviteExpiresAt,
+            m.Status == MemberStatus.Invited && m.InviteExpiresAt is { } exp && exp < now,
+            m.InviteEmailSentAt, m.JoinedAt, m.LastActiveAt);
 }
 
 public static partial class OrganizationEndpoints
@@ -31,6 +37,8 @@ public static partial class OrganizationEndpoints
         org.MapGet("/members", ListMembers);
         org.MapPost("/members", InviteMember);
         org.MapPatch("/members/{id:guid}", UpdateMember);
+        org.MapPost("/members/{id:guid}/resend", ResendInvitation);
+        org.MapDelete("/members/{id:guid}", RevokeInvitation);
 
         return app;
     }
@@ -94,13 +102,16 @@ public static partial class OrganizationEndpoints
             Role = Roles.OrgAdmin,
             InvitedByUserId = CurrentMemberResolver.UserId(http.User),
             InvitedAt = now,
+            InviteExpiresAt = now + InvitationLifetime,
         });
         await db.SaveChangesAsync(ct);
         return Results.Created($"/api/admin/organizations/{org.Id}", new { org.Id, org.Name, org.Slug });
     }
 
+    public static readonly TimeSpan InvitationLifetime = TimeSpan.FromDays(14);
+
     internal static async Task<IResult> ListMembers(
-        string? role, HttpContext http, CurrentMemberResolver resolver, AppDbContext db, CancellationToken ct)
+        string? role, HttpContext http, CurrentMemberResolver resolver, AppDbContext db, TimeProvider clock, CancellationToken ct)
     {
         var (me, result) = await resolver.ResolveAsync(http, ct);
         if (me is null) return CurrentMemberResolver.Problem(result);
@@ -111,13 +122,14 @@ public static partial class OrganizationEndpoints
         if (me.Role != Roles.OrgAdmin) query = query.Where(m => m.Status == MemberStatus.Active);
         if (!string.IsNullOrWhiteSpace(role)) query = query.Where(m => m.Role == role);
 
+        var now = clock.GetUtcNow();
         var members = await query.OrderBy(m => m.DisplayName).ToListAsync(ct);
-        return Results.Ok(members.Select(MemberDto.From));
+        return Results.Ok(members.Select(m => MemberDto.From(m, now)));
     }
 
     internal static async Task<IResult> InviteMember(
         InviteMemberRequest req, HttpContext http, CurrentMemberResolver resolver, AppDbContext db,
-        TimeProvider clock, CancellationToken ct)
+        IAppMailer mailer, IOptions<AppOptions> app, TimeProvider clock, CancellationToken ct)
     {
         var (me, result) = await resolver.ResolveAsync(http, ct);
         if (me is null) return CurrentMemberResolver.Problem(result);
@@ -130,24 +142,78 @@ public static partial class OrganizationEndpoints
             errors["email"] = ["This person is already a member or has a pending invitation."];
         if (string.IsNullOrWhiteSpace(req.Name) || req.Name.Trim().Length > 200) errors["name"] = ["Required (max 200 characters)."];
         if (req.Role is null || !RoleSets.IsOrgRole(req.Role)) errors["role"] = ["Choose a valid role."];
+        if (req.Department is { Length: > 100 }) errors["department"] = ["Max 100 characters."];
         if (errors.Count > 0) return Results.ValidationProblem(errors);
 
+        var org = await db.Organizations.FirstAsync(o => o.Id == me.OrganizationId, ct);
+        if (org.Seats is { } seats && await OrgSettingsEndpoints.SeatsUsedAsync(db, org.Id, ct) >= seats)
+            return Results.Problem(statusCode: 409,
+                title: $"All {seats} seats on your plan are in use. Remove a member or invitation, or upgrade your plan.");
+
+        var now = clock.GetUtcNow();
         var member = new OrganizationMember
         {
             OrganizationId = me.OrganizationId,
             Email = email!,
             DisplayName = req.Name!.Trim(),
             Role = req.Role!,
+            Department = string.IsNullOrWhiteSpace(req.Department) ? null : req.Department.Trim(),
             InvitedByUserId = me.UserId,
-            InvitedAt = clock.GetUtcNow(),
+            InvitedAt = now,
+            InviteExpiresAt = now + InvitationLifetime,
         };
         db.OrganizationMembers.Add(member);
+        Audit.Record(db, org.Id, me, "member.invited", "user", member.Id.ToString(), $"{member.DisplayName} <{member.Email}>", now,
+            new { role = member.Role, department = member.Department });
+
+        if (await SendInvitationAsync(mailer, app.Value, org, member, me.Name, ct)) member.InviteEmailSentAt = now;
         await db.SaveChangesAsync(ct);
-        return Results.Created($"/api/org/members/{member.Id}", MemberDto.From(member));
+        return Results.Created($"/api/org/members/{member.Id}", MemberDto.From(member, now));
+    }
+
+    internal static async Task<IResult> ResendInvitation(
+        Guid id, HttpContext http, CurrentMemberResolver resolver, AppDbContext db,
+        IAppMailer mailer, IOptions<AppOptions> app, TimeProvider clock, CancellationToken ct)
+    {
+        var (me, result) = await resolver.ResolveAsync(http, ct);
+        if (me is null) return CurrentMemberResolver.Problem(result);
+        if (me.Role != Roles.OrgAdmin) return Results.Forbid();
+
+        var member = await db.OrganizationMembers.FirstOrDefaultAsync(m => m.Id == id && m.OrganizationId == me.OrganizationId, ct);
+        if (member is null) return Results.NotFound();
+        if (member.Status != MemberStatus.Invited) return Results.Problem(statusCode: 409, title: "Only pending invitations can be resent.");
+
+        var org = await db.Organizations.FirstAsync(o => o.Id == me.OrganizationId, ct);
+        var now = clock.GetUtcNow();
+        member.InviteExpiresAt = now + InvitationLifetime; // resending renews the invitation
+        var sent = await SendInvitationAsync(mailer, app.Value, org, member, me.Name, ct);
+        if (sent) member.InviteEmailSentAt = now;
+        Audit.Record(db, org.Id, me, "member.invite_resent", "user", member.Id.ToString(), $"{member.DisplayName} <{member.Email}>", now, new { emailSent = sent });
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(new { member = MemberDto.From(member, now), emailSent = sent });
+    }
+
+    internal static async Task<IResult> RevokeInvitation(
+        Guid id, HttpContext http, CurrentMemberResolver resolver, AppDbContext db, TimeProvider clock, CancellationToken ct)
+    {
+        var (me, result) = await resolver.ResolveAsync(http, ct);
+        if (me is null) return CurrentMemberResolver.Problem(result);
+        if (me.Role != Roles.OrgAdmin) return Results.Forbid();
+
+        var member = await db.OrganizationMembers.FirstOrDefaultAsync(m => m.Id == id && m.OrganizationId == me.OrganizationId, ct);
+        if (member is null) return Results.NotFound();
+        if (member.Status != MemberStatus.Invited || member.UserId is not null)
+            return Results.Problem(statusCode: 409, title: "Only pending invitations can be revoked. Suspend joined members instead.");
+
+        db.OrganizationMembers.Remove(member);
+        Audit.Record(db, me.OrganizationId, me, "member.invite_revoked", "user", member.Id.ToString(), $"{member.DisplayName} <{member.Email}>", clock.GetUtcNow());
+        await db.SaveChangesAsync(ct);
+        return Results.NoContent();
     }
 
     internal static async Task<IResult> UpdateMember(
-        Guid id, UpdateMemberRequest req, HttpContext http, CurrentMemberResolver resolver, AppDbContext db, CancellationToken ct)
+        Guid id, UpdateMemberRequest req, HttpContext http, CurrentMemberResolver resolver, AppDbContext db,
+        TimeProvider clock, CancellationToken ct)
     {
         var (me, result) = await resolver.ResolveAsync(http, ct);
         if (me is null) return CurrentMemberResolver.Problem(result);
@@ -157,21 +223,46 @@ public static partial class OrganizationEndpoints
         if (member is null) return Results.NotFound();
         if (member.Id == me.MemberId) return Results.Problem(statusCode: 409, title: "You cannot change your own role or status.");
 
+        var now = clock.GetUtcNow();
+        var label = $"{member.DisplayName} <{member.Email}>";
+
         if (req.Role is not null)
         {
             if (!RoleSets.IsOrgRole(req.Role)) return Results.ValidationProblem(new Dictionary<string, string[]> { ["role"] = ["Choose a valid role."] });
-            member.Role = req.Role;
+            if (req.Role != member.Role)
+            {
+                Audit.Record(db, me.OrganizationId, me, "member.role_changed", "user", member.Id.ToString(), label, now,
+                    new { from = member.Role, to = req.Role });
+                member.Role = req.Role;
+            }
         }
 
         if (req.Status is not null)
         {
-            if (req.Status == "suspended") member.Status = MemberStatus.Suspended;
-            else if (req.Status == "active" && member.UserId is not null) member.Status = MemberStatus.Active;
-            else return Results.ValidationProblem(new Dictionary<string, string[]> { ["status"] = ["Use 'active' (joined members only) or 'suspended'."] });
+            if (req.Status == "suspended" && member.Status != MemberStatus.Suspended)
+            {
+                member.Status = MemberStatus.Suspended;
+                Audit.Record(db, me.OrganizationId, me, "member.suspended", "user", member.Id.ToString(), label, now);
+            }
+            else if (req.Status == "active" && member.UserId is not null && member.Status != MemberStatus.Active)
+            {
+                member.Status = MemberStatus.Active;
+                Audit.Record(db, me.OrganizationId, me, "member.reactivated", "user", member.Id.ToString(), label, now);
+            }
+            else if (req.Status is not ("suspended" or "active") || (req.Status == "active" && member.UserId is null))
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["status"] = ["Use 'active' (joined members only) or 'suspended'."] });
         }
 
         await db.SaveChangesAsync(ct);
-        return Results.Ok(MemberDto.From(member));
+        return Results.Ok(MemberDto.From(member, now));
+    }
+
+    private static async Task<bool> SendInvitationAsync(
+        IAppMailer mailer, AppOptions app, Organization org, OrganizationMember member, string inviterName, CancellationToken ct)
+    {
+        var signUp = $"{app.PublicUrl.TrimEnd('/')}/auth/sign-up?email={Uri.EscapeDataString(member.Email)}";
+        return await mailer.TrySendAsync(InviteEmails.Invitation(member.Email, member.DisplayName, org.Name,
+            RoleLabels.For(member.Role), inviterName, signUp, member.InviteExpiresAt ?? DateTimeOffset.UtcNow + InvitationLifetime), ct);
     }
 
     private static string? NormalizeEmail(string? value)

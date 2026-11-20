@@ -117,27 +117,188 @@ namespace EquipTrack.Api.Data.Migrations
                     b.ToTable("leads", (string)null);
                 });
 
+            modelBuilder.Entity("EquipTrack.Api.Organizations.OrgAuditEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("ActorName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ActorRole")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("ActorUserId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Metadata")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("character varying(8000)");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TargetId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("TargetLabel")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("TargetType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "OccurredAt");
+
+                    b.ToTable("org_audit_events", (string)null);
+                });
+
             modelBuilder.Entity("EquipTrack.Api.Organizations.Organization", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AccentColor")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)");
+
+                    b.Property<string>("AllowedEmailDomains")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("AutoProvision")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("AutoProvisionRole")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("BaseName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateOnly?>("BillingCycleEnd")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("BillingCycleStart")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Coordinators")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Country")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DefaultOrigin")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset?>("DeletionRequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DocumentLegalName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("DocumentShortName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Industry")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<int>("LastWorkOrderNumber")
                         .HasColumnType("integer");
+
+                    b.Property<string>("LogoUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("MicrosoftTenantId")
+                        .HasMaxLength(253)
+                        .HasColumnType("character varying(253)");
+
+                    b.Property<decimal?>("MonthlyPriceUsd")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("NotificationSettings")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PlanTier")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int?>("Seats")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SlaHoursOverrides")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("Slug")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("SubscriptionStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Timezone")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateOnly?>("TrialEndsAt")
+                        .HasColumnType("date");
 
                     b.HasKey("Id");
 
@@ -153,6 +314,10 @@ namespace EquipTrack.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Department")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -163,6 +328,12 @@ namespace EquipTrack.Api.Data.Migrations
                         .HasMaxLength(254)
                         .HasColumnType("character varying(254)");
 
+                    b.Property<DateTimeOffset?>("InviteEmailSentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("InviteExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset>("InvitedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -171,6 +342,9 @@ namespace EquipTrack.Api.Data.Migrations
                         .HasColumnType("character varying(100)");
 
                     b.Property<DateTimeOffset?>("JoinedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LastActiveAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("OrganizationId")
@@ -383,6 +557,15 @@ namespace EquipTrack.Api.Data.Migrations
                     b.HasIndex("WorkOrderId", "OccurredAt");
 
                     b.ToTable("work_order_events", (string)null);
+                });
+
+            modelBuilder.Entity("EquipTrack.Api.Organizations.OrgAuditEvent", b =>
+                {
+                    b.HasOne("EquipTrack.Api.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("EquipTrack.Api.Organizations.OrganizationMember", b =>

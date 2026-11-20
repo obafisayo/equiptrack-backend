@@ -33,3 +33,28 @@ public static class Roles
 
     public static bool IsValid(string? role) => role is not null && All.Contains(role);
 }
+
+/// <summary>Human-readable role names (match ROLE_LABEL in the frontend's roles.ts).</summary>
+public static class RoleLabels
+{
+    private static readonly Dictionary<string, string> Labels = new()
+    {
+        [Roles.Sysadmin] = "System Administrator",
+        [Roles.OrgAdmin] = "Organisation Admin",
+        [Roles.Requester] = "Requester",
+        [Roles.WarehouseSupervisor] = "Warehouse Supervisor",
+        [Roles.WarehousePersonnel] = "Warehouse Personnel",
+        [Roles.DispatchSupervisor] = "Dispatch Supervisor",
+        [Roles.DispatchPersonnel] = "Dispatch Personnel",
+        [Roles.Qaqc] = "QAQC Officer",
+        [Roles.SiteLogistics] = "Site Logistics",
+        [Roles.SiteReturn] = "Site Return",
+        [Roles.Executive] = "Executive",
+        [Roles.Safety] = "Safety Officer",
+        [Roles.Logistics] = "Vessel Coordinator",
+        [Roles.Inventory] = "Inventory Manager",
+        [Roles.Maintenance] = "Maintenance Technician",
+    };
+
+    public static string For(string role) => Labels.GetValueOrDefault(role, role);
+}

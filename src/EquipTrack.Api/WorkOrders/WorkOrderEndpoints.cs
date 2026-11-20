@@ -60,7 +60,7 @@ public static class WorkOrderEndpoints
 
         db.WorkOrders.Add(order!);
         await db.SaveChangesAsync(ct);
-        return Results.Created($"/api/work-orders/{order!.Id}", order.ToDetail(now, Available(order, me)));
+        return Results.Created($"/api/work-orders/{order!.Id}", order.ToDetail(now, Available(order, me), await StageHoursAsync(db, me, ct)));
     }
 
     // ── List ────────────────────────────────────────────────────────────────
@@ -101,7 +101,8 @@ public static class WorkOrderEndpoints
         var take = Math.Clamp(limit ?? 100, 1, MaxPageSize);
         var orders = await query.OrderByDescending(o => o.CreatedAt).Take(take).ToListAsync(ct);
         var now = clock.GetUtcNow();
-        return Results.Ok(orders.Select(o => o.ToSummary(now)));
+        var hours = await StageHoursAsync(db, me, ct);
+        return Results.Ok(orders.Select(o => o.ToSummary(now, hours)));
     }
 
     // ── Detail ──────────────────────────────────────────────────────────────
@@ -118,7 +119,7 @@ public static class WorkOrderEndpoints
             .FirstOrDefaultAsync(o => o.Id == id, ct);
 
         // 404 (not 403) for orders outside the caller's view: do not reveal they exist.
-        return order is null ? Results.NotFound() : Results.Ok(order.ToDetail(clock.GetUtcNow(), Available(order, me)));
+        return order is null ? Results.NotFound() : Results.Ok(order.ToDetail(clock.GetUtcNow(), Available(order, me), await StageHoursAsync(db, me, ct)));
     }
 
     // ── Actions ─────────────────────────────────────────────────────────────
@@ -203,7 +204,7 @@ public static class WorkOrderEndpoints
                 title: "Someone else updated this order at the same time. Refresh and try again.");
         }
 
-        return Results.Ok(order.ToDetail(now, Available(order, me)));
+        return Results.Ok(order.ToDetail(now, Available(order, me), await StageHoursAsync(db, me, ct)));
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
@@ -221,6 +222,14 @@ public static class WorkOrderEndpoints
             Roles.WarehousePersonnel or Roles.DispatchPersonnel => query.Where(o => o.AssigneeUserId == me.UserId),
             _ => query.Where(_ => false),
         };
+    }
+
+    /// <summary>The organisation's stage SLA hours (defaults + Settings → SLA Config overrides).</summary>
+    internal static async Task<IReadOnlyDictionary<Stage, double>> StageHoursAsync(AppDbContext db, MemberContext me, CancellationToken ct)
+    {
+        var overrides = await db.Organizations.AsNoTracking().Where(o => o.Id == me.OrganizationId)
+            .Select(o => o.SlaHoursOverrides).FirstAsync(ct);
+        return Sla.EffectiveHours(overrides);
     }
 
     private static IReadOnlyList<string> Available(WorkOrder order, MemberContext me) =>

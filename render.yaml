@@ -24,6 +24,8 @@ services:
         sync: false
       - key: Cors__AllowedOrigins__0      # e.g. https://your-frontend.vercel.app
         sync: false
+      - key: App__PublicUrl               # frontend origin, used in invitation emails
+        value: https://equiptracks.netlify.app
       - key: NeonAuth__BaseUrl            # from `neon neon-auth status` (…/equiptrack/auth)
         value: https://ep-lucky-thunder-b9ov8mpa.neonauth.c-7.eu-central-1.aws.neon.tech/equiptrack/auth
       - key: NeonAuth__SysadminEmails__0  # platform admin (verified email) who creates organisations

@@ -12,6 +12,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Lead> Leads => Set<Lead>();
     public DbSet<Organization> Organizations => Set<Organization>();
     public DbSet<OrganizationMember> OrganizationMembers => Set<OrganizationMember>();
+    public DbSet<OrgAuditEvent> OrgAuditEvents => Set<OrgAuditEvent>();
     public DbSet<WorkOrder> WorkOrders => Set<WorkOrder>();
     public DbSet<WorkOrderEvent> WorkOrderEvents => Set<WorkOrderEvent>();
 
@@ -64,6 +65,25 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         org.Property(o => o.Name).HasMaxLength(200);
         org.Property(o => o.Slug).HasMaxLength(50);
         org.HasIndex(o => o.Slug).IsUnique();
+        org.Property(o => o.Industry).HasMaxLength(100);
+        org.Property(o => o.Country).HasMaxLength(100);
+        org.Property(o => o.Timezone).HasMaxLength(64);
+        org.Property(o => o.Status).HasConversion<string>().HasMaxLength(30);
+        org.Property(o => o.LogoUrl).HasMaxLength(500);
+        org.Property(o => o.DocumentShortName).HasMaxLength(100);
+        org.Property(o => o.DocumentLegalName).HasMaxLength(200);
+        org.Property(o => o.AccentColor).HasMaxLength(7);
+        org.Property(o => o.DefaultOrigin).HasMaxLength(100);
+        org.Property(o => o.BaseName).HasMaxLength(100);
+        org.Property(o => o.PlanTier).HasConversion<string>().HasMaxLength(20);
+        org.Property(o => o.SubscriptionStatus).HasConversion<string>().HasMaxLength(20);
+        org.Property(o => o.MonthlyPriceUsd).HasPrecision(12, 2);
+        org.Property(o => o.MicrosoftTenantId).HasMaxLength(253);
+        org.Property(o => o.AutoProvisionRole).HasMaxLength(30);
+        Json(org.Property(o => o.Coordinators));
+        Json(org.Property(o => o.AllowedEmailDomains));
+        Json(org.Property(o => o.SlaHoursOverrides));
+        Json(org.Property(o => o.NotificationSettings));
 
         var m = modelBuilder.Entity<OrganizationMember>();
         m.ToTable("organization_members");
@@ -74,10 +94,37 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         m.Property(x => x.Role).HasMaxLength(30);
         m.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
         m.Property(x => x.InvitedByUserId).HasMaxLength(100);
+        m.Property(x => x.Department).HasMaxLength(100);
         m.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
         m.HasIndex(x => new { x.OrganizationId, x.Email }).IsUnique();
         m.HasIndex(x => x.UserId);
         m.HasIndex(x => new { x.Email, x.Status });
+
+        var a = modelBuilder.Entity<OrgAuditEvent>();
+        a.ToTable("org_audit_events");
+        a.HasKey(x => x.Id);
+        a.Property(x => x.ActorUserId).HasMaxLength(100);
+        a.Property(x => x.ActorName).HasMaxLength(200);
+        a.Property(x => x.ActorRole).HasMaxLength(30);
+        a.Property(x => x.Action).HasMaxLength(60);
+        a.Property(x => x.TargetType).HasMaxLength(30);
+        a.Property(x => x.TargetId).HasMaxLength(100);
+        a.Property(x => x.TargetLabel).HasMaxLength(300);
+        a.Property(x => x.Metadata).HasMaxLength(8000);
+        a.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        a.HasIndex(x => new { x.OrganizationId, x.OccurredAt });
+    }
+
+    /// <summary>Stores a list/dictionary as a JSON string (portable across providers) with value comparison.</summary>
+    private static void Json<T>(Microsoft.EntityFrameworkCore.Metadata.Builders.PropertyBuilder<T> property) where T : class, new()
+    {
+        property.HasConversion(
+                v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => string.IsNullOrEmpty(v) ? new T() : JsonSerializer.Deserialize<T>(v, (JsonSerializerOptions?)null) ?? new T())
+            .Metadata.SetValueComparer(new ValueComparer<T>(
+                (x, y) => JsonSerializer.Serialize(x, (JsonSerializerOptions?)null) == JsonSerializer.Serialize(y, (JsonSerializerOptions?)null),
+                v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null).GetHashCode(),
+                v => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(v, (JsonSerializerOptions?)null), (JsonSerializerOptions?)null)!));
     }
 
     private void ConfigureWorkOrders(ModelBuilder modelBuilder)

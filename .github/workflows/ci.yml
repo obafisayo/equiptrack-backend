@@ -39,6 +39,7 @@ jobs:
             src/lib/domain/roles.ts
             src/lib/lifecycle.ts
             src/config/sla.ts
+            src/config/pricing.ts
 
       - uses: actions/setup-dotnet@v5
         with:

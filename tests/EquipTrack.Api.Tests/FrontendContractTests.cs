@@ -58,6 +58,26 @@ public sealed partial class FrontendContractTests
         Assert.Equal(frontend.OrderBy(kv => kv.Key), backend.OrderBy(kv => kv.Key));
     }
 
+    [Fact]
+    public void Backend_plans_match_frontend_pricing()
+    {
+        if (ReadFrontendFile("src/config/pricing.ts") is not { } source) return;
+
+        var frontend = PlanBlock().Matches(source).ToDictionary(
+            m => m.Groups[1].Value,
+            m => (Price: m.Groups[2].Value == "null" ? (decimal?)null : decimal.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture),
+                  Seats: m.Groups[3].Value == "null" ? (int?)null : int.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture)));
+        Assert.Equal(3, frontend.Count);
+
+        foreach (var plan in EquipTrack.Api.Organizations.Plans.All)
+        {
+            var key = plan.Tier.ToString().ToLowerInvariant();
+            Assert.True(frontend.ContainsKey(key), $"pricing.ts has no '{key}' plan");
+            Assert.Equal(frontend[key].Price, plan.MonthlyPriceUsd);
+            Assert.Equal(frontend[key].Seats, plan.Seats);
+        }
+    }
+
     private static string? ReadFrontendFile(string relativePath)
     {
         var root = FindFrontendRoot();
@@ -100,6 +120,9 @@ public sealed partial class FrontendContractTests
 
     [GeneratedRegex(@"export const STAGE_SLA_HOURS[^{]*\{(.*?)\}", RegexOptions.Singleline)]
     private static partial Regex SlaBlock();
+
+    [GeneratedRegex(@"tier:\s*'(\w+)'[\s\S]*?monthlyPriceUsd:\s*(null|\d+)[\s\S]*?seats:\s*(null|\d+)")]
+    private static partial Regex PlanBlock();
 
     [GeneratedRegex(@"'([^']+)'\s*:\s*([0-9.]+)")]
     private static partial Regex SlaEntry();

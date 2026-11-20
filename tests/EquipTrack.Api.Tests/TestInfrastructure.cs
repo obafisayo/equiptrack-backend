@@ -49,13 +49,19 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     /// <summary>Signs test tokens; also serves as the API's JWKS source.</summary>
     public TestTokens Tokens { get; } = new();
 
+    /// <summary>Captures every email the API sends.</summary>
+    public FakeBrevoClient Brevo { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("ConnectionStrings:Default", "Host=unused");
         builder.UseSetting("Database:MigrateOnStartup", "false");
         builder.UseSetting("RateLimiting:LeadsPerMinute", "1000");
-        builder.UseSetting("Brevo:ApiKey", "");
+        builder.UseSetting("Brevo:ApiKey", "test-key");
+        builder.UseSetting("Brevo:SenderEmail", "hello@equiptrack.test");
+        builder.UseSetting("Brevo:TeamNotificationEmail", "team@equiptrack.test");
+        builder.UseSetting("App:PublicUrl", "https://app.equiptrack.test");
         builder.UseSetting("NeonAuth:BaseUrl", TestTokens.BaseUrl);
         builder.UseSetting("NeonAuth:SysadminEmails:0", SysadminEmail);
 
@@ -64,6 +70,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.RemoveAll<DbContextOptions>();
             services.AddDbContext<AppDbContext>(o => o.UseInMemoryDatabase(_dbName));
+
+            services.RemoveAll<IBrevoClient>();
+            services.AddSingleton<IBrevoClient>(Brevo);
 
             services.RemoveAll<IJwksProvider>();
             services.AddSingleton<IJwksProvider>(Tokens);

@@ -33,6 +33,8 @@ builder.Services.AddHttpClient<IBrevoClient, BrevoClient>((sp, http) =>
     http.DefaultRequestHeaders.Add("accept", "application/json");
 });
 builder.Services.AddScoped<LeadSyncProcessor>();
+builder.Services.AddOptions<AppOptions>().Bind(builder.Configuration.GetSection(AppOptions.SectionName));
+builder.Services.AddScoped<IAppMailer, AppMailer>();
 builder.Services.AddHostedService<LeadSyncWorker>();
 
 // ── Authentication (Neon Auth JWT) + authorisation ─────────────────────────
@@ -52,7 +54,7 @@ builder.Services.AddAuthorization();
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
     policy.WithOrigins(allowedOrigins)
-        .WithMethods("GET", "POST", "PATCH")
+        .WithMethods("GET", "POST", "PATCH", "PUT", "DELETE")
         .WithHeaders("Content-Type", "Authorization", CurrentMemberResolver.OrganizationHeader)));
 
 builder.Services.AddRateLimiter(options =>
@@ -110,6 +112,7 @@ app.UseAuthorization();
 app.MapHealthChecks("/health");
 app.MapLeadEndpoints();
 app.MapOrganizationEndpoints();
+app.MapOrgSettingsEndpoints();
 app.MapWorkOrderEndpoints();
 
 app.Run();

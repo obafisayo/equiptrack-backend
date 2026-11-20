@@ -97,9 +97,9 @@ public static class WorkOrderMapping
         return (int)type >= 0;
     }
 
-    public static WorkOrderSummaryDto ToSummary(this WorkOrder o, DateTimeOffset now)
+    public static WorkOrderSummaryDto ToSummary(this WorkOrder o, DateTimeOffset now, IReadOnlyDictionary<Stage, double>? stageHours = null)
     {
-        var sla = Sla.Evaluate(o, now);
+        var sla = Sla.Evaluate(o, now, stageHours ?? Sla.StageHours);
         var awaiting = Lifecycle.AwaitingRole(o);
         var assignee = o.AssigneeUserId is null ? null : new PersonDto(o.AssigneeUserId, o.AssigneeName ?? "");
 
@@ -122,8 +122,9 @@ public static class WorkOrderMapping
             o.CreatedAt, Sla.ExpectedDeliveryAt(o));
     }
 
-    public static WorkOrderDetailDto ToDetail(this WorkOrder o, DateTimeOffset now, IReadOnlyList<string> availableActions) => new(
-        o.ToSummary(now), o.Entity, o.Notes, o.RequiredDate, o.TrDepartment, o.ContainerRef,
+    public static WorkOrderDetailDto ToDetail(this WorkOrder o, DateTimeOffset now, IReadOnlyList<string> availableActions,
+        IReadOnlyDictionary<Stage, double>? stageHours = null) => new(
+        o.ToSummary(now, stageHours), o.Entity, o.Notes, o.RequiredDate, o.TrDepartment, o.ContainerRef,
         o.WaybillNumber, o.WaybillApproved, o.VesselName, o.RejectionReason,
         o.Items.Select(i => new WorkOrderItemDto(i.Description, i.Quantity, i.Unit, i.PartNumber, i.Plant, i.BinLocation)).ToList(),
         o.Events.OrderBy(e => e.OccurredAt).ThenBy(e => e.Id).Select(e => new WorkOrderEventDto(

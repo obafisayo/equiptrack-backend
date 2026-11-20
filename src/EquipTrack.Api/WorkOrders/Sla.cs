@@ -48,12 +48,24 @@ public static class Sla
         _ => null,
     };
 
-    public static StageSla Evaluate(WorkOrder order, DateTimeOffset now)
+    /// <summary>Default stage hours with an organisation's overrides (stage display name → hours) applied.</summary>
+    public static IReadOnlyDictionary<Stage, double> EffectiveHours(IReadOnlyDictionary<string, double>? overrides)
+    {
+        if (overrides is null || overrides.Count == 0) return StageHours;
+        var merged = new Dictionary<Stage, double>(StageHours);
+        foreach (var (name, hours) in overrides)
+            if (Stages.TryParse(name, out var stage) && merged.ContainsKey(stage) && hours > 0) merged[stage] = hours;
+        return merged;
+    }
+
+    public static StageSla Evaluate(WorkOrder order, DateTimeOffset now) => Evaluate(order, now, StageHours);
+
+    public static StageSla Evaluate(WorkOrder order, DateTimeOffset now, IReadOnlyDictionary<Stage, double> stageHours)
     {
         var elapsed = now - order.StageStartedAt;
         if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero;
 
-        if (order.Status != WorkOrderStatus.Active || !StageHours.TryGetValue(order.Stage, out var hours))
+        if (order.Status != WorkOrderStatus.Active || !stageHours.TryGetValue(order.Stage, out var hours))
             return new StageSla(order.Stage, elapsed, null, null, SlaStatus.NotTracked, null);
 
         var used = elapsed.TotalHours / hours;
