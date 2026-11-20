@@ -1,0 +1,38 @@
+# Render Blueprint for the EquipTrack API.
+# Render dashboard → New → Blueprint → select this repo.
+# Values marked `sync: false` are secrets: Render asks for them on first deploy.
+services:
+  - type: web
+    name: equiptrack-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    region: frankfurt          # same region as the Neon database (aws-eu-central-1)
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT                # the container listens on 8080 (see Dockerfile)
+        value: "8080"
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ForwardedHeaders__Enabled
+        value: "true"
+      - key: Database__MigrateOnStartup
+        value: "true"
+      - key: ConnectionStrings__Default   # Neon pooled connection, Npgsql keyword format
+        sync: false
+      - key: Cors__AllowedOrigins__0      # e.g. https://your-frontend.vercel.app
+        sync: false
+      - key: Brevo__ApiKey
+        sync: false
+      - key: Brevo__SenderEmail
+        sync: false
+      - key: Brevo__SenderName
+        value: EquipTrack
+      - key: Brevo__TeamNotificationEmail
+        sync: false
+      - key: Brevo__WaitlistListId
+        sync: false
+      - key: Brevo__NewsletterListId
+        sync: false

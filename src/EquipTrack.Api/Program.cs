@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 using EquipTrack.Api.Data;
 using EquipTrack.Api.Email;
 using EquipTrack.Api.Leads;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -53,7 +54,25 @@ builder.Services.AddRateLimiter(options =>
 
 builder.Services.AddProblemDetails();
 
+// Behind a hosting proxy (Render, etc.) the socket IP is the proxy's, which would
+// make every visitor share one rate-limit bucket. When enabled, trust the
+// X-Forwarded-For value appended by the platform's proxy (ForwardLimit = 1 →
+// only the right-most hop, which the client cannot forge).
+var trustForwardedHeaders = builder.Configuration.GetValue("ForwardedHeaders:Enabled", false);
+if (trustForwardedHeaders)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.ForwardLimit = 1;
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
+}
+
 var app = builder.Build();
+
+if (trustForwardedHeaders) app.UseForwardedHeaders();
 
 if (app.Configuration.GetValue("Database:MigrateOnStartup", false))
 {

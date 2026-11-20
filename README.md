@@ -52,8 +52,13 @@ Set secrets as environment variables, never in `appsettings.json`:
 | `Brevo__TeamNotificationEmail` | Inbox that receives new waitlist applications |
 | `Brevo__WaitlistListId` / `Brevo__NewsletterListId` | Brevo contact list IDs (0 = no list) |
 | `RateLimiting__LeadsPerMinute` | Per-IP limit on lead endpoints (default 10) |
+| `ForwardedHeaders__Enabled` | `true` behind a hosting proxy (Render), so rate limiting sees the real client IP |
 
-If you deploy behind a reverse proxy, configure forwarded headers before you rely on the per-IP rate limit.
+## Deploy (Neon + Render)
+
+- **Database:** Neon project `equiptrack` in `aws-eu-central-1` (Frankfurt), database `equiptrack`. Use the **pooled** connection string, converted to Npgsql keyword format: `Host=...-pooler...neon.tech;Port=5432;Database=equiptrack;Username=...;Password=...;SSL Mode=Require`. Npgsql does not accept `postgresql://` URLs.
+- **API:** `render.yaml` is a Render Blueprint (Docker, Frankfurt, health check `/health`). In Render, choose New → Blueprint → this repo, and enter the secret values when asked. Migrations run on startup (`Database__MigrateOnStartup=true`).
+- **Frontend:** set `NEXT_PUBLIC_API_BASE_URL` to the Render URL, and add the frontend's URL to `Cors__AllowedOrigins__0`.
 
 ## Tests and migrations
 
