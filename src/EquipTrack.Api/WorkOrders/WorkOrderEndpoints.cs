@@ -152,6 +152,7 @@ public static class WorkOrderEndpoints
             WorkflowAction.StartPicking => new StartPicking(),
             WorkflowAction.CreateGoodsIssue => new CreateGoodsIssue(),
             WorkflowAction.TransferToDispatch => new TransferToDispatch(),
+            WorkflowAction.AcknowledgeHandover => new AcknowledgeHandover(),
             WorkflowAction.SendToPreloadQaqc => new SendToPreloadQaqc(),
             WorkflowAction.Containerize => new Containerize(req.ContainerRef ?? ""),
             WorkflowAction.SubmitForPostQaqc => new SubmitForPostQaqc(),

@@ -73,6 +73,7 @@ public enum WorkflowAction
     StartPicking,
     CreateGoodsIssue,
     TransferToDispatch,
+    AcknowledgeHandover,
     AssignDispatch,
     SendToPreloadQaqc,
     Containerize,

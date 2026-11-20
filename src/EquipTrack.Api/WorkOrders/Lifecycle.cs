@@ -40,6 +40,7 @@ public sealed record AssignWarehouse(Assignee To) : WorkflowCommand(WorkflowActi
 public sealed record StartPicking() : WorkflowCommand(WorkflowAction.StartPicking);
 public sealed record CreateGoodsIssue() : WorkflowCommand(WorkflowAction.CreateGoodsIssue);
 public sealed record TransferToDispatch() : WorkflowCommand(WorkflowAction.TransferToDispatch);
+public sealed record AcknowledgeHandover() : WorkflowCommand(WorkflowAction.AcknowledgeHandover);
 public sealed record AssignDispatch(Assignee To) : WorkflowCommand(WorkflowAction.AssignDispatch);
 public sealed record SendToPreloadQaqc() : WorkflowCommand(WorkflowAction.SendToPreloadQaqc);
 public sealed record Containerize(string ContainerRef) : WorkflowCommand(WorkflowAction.Containerize);
@@ -101,9 +102,12 @@ public static class Lifecycle
             [Roles.WarehousePersonnel, Roles.WarehouseSupervisor], PersonnelMustBeAssignee: true),
         [WorkflowAction.CreateGoodsIssue] = new([Stage.Picking], Stage.GiCreated,
             [Roles.WarehousePersonnel, Roles.WarehouseSupervisor], PersonnelMustBeAssignee: true),
-        // The UI hands over straight to the dispatch queue; "Transferred to Dispatch" is not used as a resting stage.
-        [WorkflowAction.TransferToDispatch] = new([Stage.GiCreated], Stage.DispatchQueue,
+        // Physical handover: warehouse marks the goods transferred (and stays accountable),
+        // then dispatch confirms receipt. The gap between the two is the handover delay.
+        [WorkflowAction.TransferToDispatch] = new([Stage.GiCreated], Stage.TransferredToDispatch,
             [Roles.WarehousePersonnel, Roles.WarehouseSupervisor], PersonnelMustBeAssignee: true),
+        [WorkflowAction.AcknowledgeHandover] = new([Stage.TransferredToDispatch], Stage.DispatchQueue,
+            [Roles.DispatchSupervisor, Roles.DispatchPersonnel]),
 
         // Dispatch + QAQC.
         [WorkflowAction.AssignDispatch] = new([Stage.DispatchQueue], Stage.DispatchAssigned, [Roles.DispatchSupervisor]),
@@ -162,7 +166,8 @@ public static class Lifecycle
     {
         Stage.PendingBaseCoordinatorApproval => Roles.Executive,
         Stage.NewRequest => Roles.WarehouseSupervisor,
-        Stage.WarehouseAssigned or Stage.Picking or Stage.GiCreated or Stage.TransferredToDispatch => Roles.WarehousePersonnel,
+        Stage.WarehouseAssigned or Stage.Picking or Stage.GiCreated => Roles.WarehousePersonnel,
+        Stage.TransferredToDispatch => Roles.DispatchSupervisor,
         Stage.DispatchQueue => Roles.DispatchSupervisor,
         Stage.PostQaqc => Roles.Qaqc,
         Stage.WaybillPendingSignature => order.WaybillNumber is null ? Roles.DispatchPersonnel : Roles.Executive,
@@ -282,8 +287,8 @@ public static class Lifecycle
                 SetAssignee(order, a.To);
                 break;
 
-            case TransferToDispatch:
-                ClearAssignee(order); // dispatch supervisor picks it up from the queue
+            case AcknowledgeHandover:
+                ClearAssignee(order); // warehouse is released; dispatch supervisor assigns from the queue
                 break;
 
             case Containerize c:

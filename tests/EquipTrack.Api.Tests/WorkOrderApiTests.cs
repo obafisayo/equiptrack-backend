@@ -188,7 +188,10 @@ public sealed class WorkOrderApiTests : IDisposable
         await Ok(Act(wh, id, new { action = "StartPicking", expectedStage = "Warehouse Assigned" }));
         await Ok(Act(wh, id, new { action = "CreateGoodsIssue" }));
         var transferred = await Ok(Act(wh, id, new { action = "TransferToDispatch" }));
-        Assert.Equal("Dispatch Queue", transferred.GetProperty("summary").GetProperty("stage").GetString());
+        Assert.Equal("Transferred to Dispatch", transferred.GetProperty("summary").GetProperty("stage").GetString());
+        Assert.Equal("Dispatch Supervisor", transferred.GetProperty("summary").GetProperty("pendingActionBy").GetString());
+        var received = await Ok(Act(As(p[Roles.DispatchSupervisor]), id, new { action = "AcknowledgeHandover" }));
+        Assert.Equal("Dispatch Queue", received.GetProperty("summary").GetProperty("stage").GetString());
 
         // Wrong stage for the action → 409; wrong role → 403.
         Assert.Equal(HttpStatusCode.Conflict, (await Act(As(p[Roles.WarehouseSupervisor]), id, new { action = "CreateGoodsIssue" })).StatusCode);
@@ -196,7 +199,7 @@ public sealed class WorkOrderApiTests : IDisposable
             new { action = "AssignDispatch", assigneeMemberId = p[Roles.DispatchPersonnel].MemberId })).StatusCode);
 
         var history = (await Ok(As(p[Roles.Executive]).GetAsync($"/api/work-orders/{id}"))).GetProperty("history");
-        Assert.Equal(new[] { "Created", "AssignWarehouse", "StartPicking", "CreateGoodsIssue", "TransferToDispatch" },
+        Assert.Equal(new[] { "Created", "AssignWarehouse", "StartPicking", "CreateGoodsIssue", "TransferToDispatch", "AcknowledgeHandover" },
             history.EnumerateArray().Select(e => e.GetProperty("action").GetString()));
         Assert.Equal(p[Roles.WarehousePersonnel].Name, history[2].GetProperty("actor").GetProperty("name").GetString());
     }

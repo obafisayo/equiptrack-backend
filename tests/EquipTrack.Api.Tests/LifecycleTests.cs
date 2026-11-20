@@ -56,6 +56,9 @@ public sealed class LifecycleTests
         Do(o, new StartPicking(), WhPer);
         Do(o, new CreateGoodsIssue(), WhPer);
         Do(o, new TransferToDispatch(), WhPer);
+        Assert.Equal(Stage.TransferredToDispatch, o.Stage);
+        Assert.Equal(WhPer.UserId, o.AssigneeUserId); // warehouse stays accountable until receipt
+        Do(o, new AcknowledgeHandover(), DspSup);
         Assert.Equal(Stage.DispatchQueue, o.Stage);
         Assert.Null(o.AssigneeUserId);
 
@@ -76,8 +79,8 @@ public sealed class LifecycleTests
         Assert.Equal("CCU-20-0042", o.ContainerRef);
         Assert.True(o.WaybillApproved);
 
-        // 1 Created + 15 actions, each with a named actor and timestamp.
-        Assert.Equal(16, o.Events.Count);
+        // 1 Created + 16 actions, each with a named actor and timestamp.
+        Assert.Equal(17, o.Events.Count);
         Assert.All(o.Events, e => Assert.False(string.IsNullOrEmpty(e.ActorName)));
         Assert.Equal(o.Events.OrderBy(e => e.OccurredAt).Select(e => e.Action), o.Events.Select(e => e.Action));
     }
@@ -127,6 +130,23 @@ public sealed class LifecycleTests
 
         // A rejected order is closed to every action.
         Assert.Equal(WorkflowErrorKind.InvalidState, Refused(rejected, new ApproveRequest(), Exec).Kind);
+    }
+
+    [Fact]
+    public void Handover_waits_for_dispatch_and_can_be_reversed_by_warehouse()
+    {
+        var o = ToStage(Stage.TransferredToDispatch);
+        Assert.Equal(Roles.DispatchSupervisor, Lifecycle.AwaitingRole(o));
+        Assert.Equal(WorkflowErrorKind.Forbidden, Refused(o, new AcknowledgeHandover(), WhPer).Kind);
+
+        // Wrong goods sent: warehouse supervisor pulls it back, original picker still owns it.
+        Do(o, new Reverse("Wrong bin"), WhSup);
+        Assert.Equal(Stage.GiCreated, o.Stage);
+        Assert.Equal(WhPer.UserId, o.AssigneeUserId);
+
+        Do(o, new TransferToDispatch(), WhPer);
+        Do(o, new AcknowledgeHandover(), DspPer); // any dispatch person may confirm receipt
+        Assert.Equal(Stage.DispatchQueue, o.Stage);
     }
 
     [Fact]
@@ -281,6 +301,7 @@ public sealed class LifecycleTests
             (new StartPicking(), WhPer),
             (new CreateGoodsIssue(), WhPer),
             (new TransferToDispatch(), WhPer),
+            (new AcknowledgeHandover(), DspSup),
             (new AssignDispatch(As(DspPer)), DspSup),
             (new SendToPreloadQaqc(), DspPer),
             (new Containerize("CCU-1"), DspPer),
